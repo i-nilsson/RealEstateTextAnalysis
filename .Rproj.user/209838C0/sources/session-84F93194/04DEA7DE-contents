@@ -1,0 +1,154 @@
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(stringr)
+new_data<- read_csv("zillow_test.csv")
+remove.list <- paste(c("Condo", "CONDO", "Townhouse", "Townhome","Duplex", "Vacant Lot", "DUPLEX", "TOWNHOME", "TOWNHOUSE", "VACANT LOT", "condo", "townhouse", "townhome", "vacant lot", "duplex", "acres lot","is a single family home that contains", "rent", "#NAME?", "is a single family home. This home last sold for", "unit", "flat", "loft", "is a single family home. It contains" ), collapse = '|')
+#remove.line <- paste(c("acres lot"), collapse = '|')
+remove.lines <- paste(c("APT", "UNIT"), collapse = '|')
+
+remove_words<-c("lots","new","home","kitchen","great","throughout","master","bedroom","bathroom","bath","dining","living", "bedrooms","bathrooms","2","4","3","1","2","floor","floors","sq","sold","nc","ft","dr","built","location","features","lot","fenced", "2.5","1,096","2016","1,242","located", "1989","2017", "1,136", "1,236", "ln","lex","street","ready", "cir", "brand", "flooring","plan")
+data1<-zillow_cluster %>% separate(address, into = c("street", "city", "state_zip"), sep = ",") 
+data1<- data1%>% filter(!str_detect(USER_descr, remove.lines))
+data1 <- filter(data1, City == " Charlotte")
+
+##find and replace string segments. Replace light rail with lightrail
+
+data2 <- data1%>%str_replace_all("light rail", "lightrail")
+
+data4<- data3 %>%
+  mutate_if(is.character, str_trim)
+data5<-data4 %>% separate(state_zip, into = c("state","zip"), sep = " ") 
+data7<- data6%>% filter(!str_detect(street, remove.lines))
+data9<- data8%>%filter(!str_detect(details, remove.line))
+
+##merged with hand collected data
+new_data<- read_csv("cleaned_Data_merged.csv")
+##remove duplicates
+data2<-data1 %>% distinct(street, zip, .keep_all = TRUE)
+
+
+
+  ##October 16, geocoded, neighborhoods classified. phew.
+library(sf)
+zillow_cluster<- st_read('zillow_cluster.shp')
+zillowfull <- read.csv('zillow_oct16b.csv')
+zillowjoined <- left_join(zillowfull, zillow_cluster, by = c("ID"="USER_ID"))
+
+data<- read_csv("zillow_withcluster.csv")
+
+##Text analysis begins
+library(tidytext)
+data<- data%>%select(c("USER_ID","USER_descr", "clustr5"))
+write.csv(data, 'data_original.csv')
+data<- read_csv('data_original.csv')
+
+##cleaningthedata - this cleans the original data table
+zillow$USER_descr<- gsub('Light rail',"lightrail", zillow$USER_descr)
+
+zillow$USER_descr<- gsub('Myers Park',"MyersPark", zillow$USER_descr)
+zillow$USER_descr<- gsub('Villa Heights',"VillaHeights", zillow$USER_descr)
+zillow$USER_descr<- gsub('Blue Line',"BlueLine", zillow$USER_descr)
+zillow$USER_descr<- gsub('South Park',"SouthPark", zillow$USER_descr)
+zillow$USER_descr<- gsub('South End',"SouthEnd", zillow$USER_descr)
+zillow$USER_descr<- gsub('North End',"NorthEnd", zillow$USER_descr)
+zillow$USER_descr<- gsub('Latta Park',"LattaPark", zillow$USER_descr)
+zillow$USER_descr<- gsub('Freedom Park',"FreedomPark", zillow$USER_descr)
+
+zillow$USER_descr<- gsub('cul-de sac',"CuldeSac", zillow$USER_descr)
+zillow$USER_descr<- gsub('Cul - De - Sac',"CuldeSac", zillow$USER_descr)
+zillow$USER_descr<- gsub('Multiple OFFERS',"MultipleOffers", zillow$USER_descr)
+zillow$USER_descr<- gsub('as is',"AsIs", zillow$USER_descr)
+zillow$USER_descr<- gsub('I-277',"I277", zillow$USER_descr)
+zillow$USER_descr<- gsub('stainless steel',"StainlessSteel", zillow$USER_descr)
+zillow$USER_descr<- gsub('FP',"FirePlace", zillow$USER_descr)
+zillow$USER_descr<- gsub('VILLA HEIGHTS', "VILLAHEIGHTS", zillow$USER_descr)
+zillow$USER_descr<- gsub('WINDSOR PARK', "WindsorPark", zillow$USER_descr)
+zillow$USER_descr<- gsub('PLAZA MIDWOOD', "PlazaMidwood", zillow$USER_descr)
+zillow$USER_descr<- gsub('Rocky River', "RockyRiver", zillow$USER_descr)
+
+
+zillow$USER_descr<-gsub("(\\.+|[[:punct:]])", " \\1 ", zillow$USER_descr)
+
+write.csv(data, "data_sept2020.csv")
+
+
+##This is the tidy text process. You may want to create a list with all the neighborhood names here to remove.
+remove_words<-c("600", "399k","stai","www","3br","wi","tiered", "don","ltdlisting","00brokered","625","5ba", "rentprogresstainlessteel", "ho","5","br", "ba", "livi", "ceilings","paint","lots","new","home","kitchen","great","throughout","master","bedroom","bathroom","bath","dining","living", "bedrooms","bathrooms","2","4","3","1","2","floor","floors","sq","sold","nc","ft","dr","built","location","features","lot","fenced", "2.5","1,096","2016","1,242","located", "1989","2017", "1,136", "1,236", "ln","lex","street","ready", "cir", "brand", "flooring","plan", "house", "main", "level", "front", "story", "roof", "appliances", "uni", "andgaragegreat", "040", "00", "refinishged", "bedroom2", "II", "upd", "2860", "clst", "stal","ammenities")
+remove_more <- c("10","506","dryer.fully", "kitchen.new", "ceilings.the", "mt", "1.4", "appli", "including", "clastainlessic", "2900", "2013", "upstairs.this","property", "1986", "1.58", "6000", "2br1ba", "242.47", "cabs", "pla", "II", "wit", "3109", "450", "1956", "0", "120", "000", "399", "stai","wi")
+evenmore<-  c("grea", "august", "295", "mo", "9", "don", "6", "wi", "bdrm", "baths", "2br", "1ba", "1910", "wo", "ins", "1930s", "2018", "0", "100", "000","2019", "556", "3000", "28", "19", "2014", "heav", "april", "ins", "bon", "2623", "sf", "10", "25k", "lrg", "dow", "10ft", "bd","3ba", "45", "fl", "1906", "ins", "mike","stearns","704","491","5769","stear", "2012", "1923", "9", "cus", "ca", "ram", "12", "15", "ma", "spac", "lar", "friday", "18", "5pm", "david", "704", "906", "0886", "www", "allentate", "daviddeal", "50k", "2004", "4000", "10", "25", "5pm", "po")
+more3<-   c("oa","sep","andgranite","ss","2006","david","mini","nov","aw","windowws","withwalk","mt","1st","cod","booty","appls","showe", "leases", "appli","boyer","lan","9am","stem","martin","securi","c1511", "268", "cr", "26", "ki", "2011", "2015", "se", "8pm", "42", "li", "featuresring", "16","17", "lr", "wt", "3200","2001", "2400", "8", "1000", "sqft", "2900", "sp", "rm", "cor", "2000", "1pm", "3pm", "7","lu", "e2", "00a6", "14th", "13th", "6", "ope", "todd", "weickardtgolf", "fa", "2018", "10f", "fo", "19", "farooms", "rea", "2nd", "2012", "5th", "gr", "clo", "mbr", "4br", "5b", "brs", "bas", "964", "bdroom", "3rd", "10", "9ft", "eco", "ne", "20x16", "pr", "flr", "dan", "jones", "800", "5117", "550", "2515", "1941", "mark", "sardis", "wra", "de", "2br1ba", "halfbath","surprice", "beau", "countertopsprivate", "wra", "de","markham", "and2", "ge","704","533", "2030", "bonita","rentprogress", "wit","100", "50", "250", "2106","20","15","10am", "rlne2183528", "197", "900", "0", "50", "heather", "98215", "243410", "2231","3bd", "2ba", "661", "4637", "59", "500", "5351", "2017122", "206", "535", "4661", "3bed", "00a0","8716", "ve", "28", "5pm","gre", "9820", "28215", "230000", "1890", "hughe", "mov", "di", "fe", "1900", "tri", "hoas", "220k", "pref", "12x14", "30", "terooms", "2014", "8613", "misenheimer", "782400", "215", "782403", "216", "535", "704", "4663", "8535", "28215", "201746", "1343", "0", "30", "incl", "'refi", "1900", "fe", "28215", "229910", "1890", "115", "9813", "28215", "258790", "2635", "20", "sunl", "9809", "28215", "243250", "2231", "381", "311480", "24", "900", "34", "876", "08", "1928", "3589", "9804", "28215", "244430", "2546", "inco", "250601", "28215", "10227", "2495", "12", "18", "buil", "cei", "2007", "6am", "9pm", "ha", "9", "6am", "9pm", "op", "301", "9400", "rlne5145237", "33", "2br", "2ba", "81" , "button", "september", "15", "2019", "500", "allentate", "rondacarson", "ronda", "carson", "458", "0314", "ju", "1819", "1850", "9", "pm", "2br", "1ba", "21", "amana", "24x30", "22v", "daryl","mccall", "517", "2219", "firstkey", "floo", "86", "45", "2002", "ra", "998", "05", "11", "neig", "inte", "ad", "ful", "tra", "roo", "0048", "ga", "6801", "28216", "3bed", "2bath", "75", "cl", "2010", "444", "3916", "0485", "thomas", "elrod", "listi", "25", "82", "500", "op", "ens", "318", "voncannon", "333", "hawkins", "5523", "28216", "213500", "1890", "917", "yrs", "5425", "212910", "1745", "115", "204rook", "4875","lrg", "isn", "si", "343", "8622", "261", "5409", "212820", "1745", "4030", "57", "sepa", "su", "381", "3603", "343", "8622")
+
+words<- zillow %>% unnest_tokens(word, USER_descr) %>% anti_join(stop_words) %>% filter(!word %in% remove.list)%>% filter(!cluster5 == 0)
+zillowords2 <- zillowords%>% filter(!word %in% remove_more)
+zillowords2 <- zillowords%>% filter(!word %in% evenmore)
+zillowords4 <- zillowords%>% filter(!word %in% more3)
+
+
+cleantext <- nest(zillowords2, c(word)) %>%
+  mutate(text = map(data, unlist),
+         text_clean = map(text, paste, collapse = " ")) %>%
+  select(-data, -text)
+  
+words_by_neighborhood <- zillowords3 %>%
+  count(clustr5, word, sort = TRUE) %>%
+  ungroup()
+
+cluster.lab <- c('1'= "White-Higher-Income", '2'="White Homebuyers-Minority Neighborhoods", '3'= "Increasing Black-Minority Neighborhoods", '4'= "White-Increasingly High Income", '5'="Hispanic Homebuyers-Minority Neighborhoods")
+
+words_by_neighborhood %>%
+  filter(n >= 25) %>% 
+  arrange(n) %>%
+  group_by(clustr5) %>%
+  top_n(25, n) %>%
+  ungroup() %>%
+  mutate(n = factor(word, unique(word))) %>%
+  ggplot(aes(word, n, fill = clustr5)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ clustr5, scales = "free", ncol = 3) +
+  coord_flip() +
+  labs(x = NULL, 
+       y = "Words by Cluster")
+
+
+names <- factor(unique(words_by_neighborhood$clustr5))
+
+plist <- list()
+plist[]
+tiff("Plot4.tiff", width = 11, height = 8, units = 'in', res = 600, compression = 'lzw')
+
+for (i in 1:length(names)) {
+  d <- subset(words_by_neighborhood,clustr5 == names[i])
+  d <- subset(d, n>=5)
+  d <- head(d,20)
+  d$word <- factor(d$word, levels=d[order(d$n),]$word)
+  p1 <- ggplot(d, aes(x = word, y = n, fill = clustr5)) + 
+    labs(y = NULL, x = NULL, fill = NULL) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~clustr5, scales = "free", labeller = as_labeller(cluster.lab)) +
+    coord_flip() +
+    guides(fill=FALSE) +
+    theme_bw() + theme( strip.background  = element_blank(),
+                        panel.grid.major = element_line(colour = "grey80"),
+                        panel.border = element_blank(),
+                        axis.ticks = element_line(size = 0),
+                        panel.grid.minor.y = element_blank(),
+                        panel.grid.major.y = element_blank() ) +
+    theme(legend.position="bottom") 
+  
+  
+  plist[[names[i]]] = p1
+}   
+
+
+#library(gridExtra)
+do.call("grid.arrange", c(plist, ncol=3))
+
+dev.off()
+#ggsave("test.tiff", units="in", width=5, height=4, dpi=300, compression = 'lzw')
+
+#ggsave("wordplot.tiff")
+
+##TF-IDF
+##Gives lower weight for commonly used words and a higher weight for words that are not used much in the collection of text. A term's importance is adjusted for how rarely it is used.
+##Terms that appear more frequently in a document should be given a higher weight, unless it also appears in many documents.

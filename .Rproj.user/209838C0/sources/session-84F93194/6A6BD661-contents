@@ -1,0 +1,66 @@
+library(tidyr)
+library(tidyverse)
+library(stringr)
+library(gridExtra)
+library(dplyr)
+
+rm(list = ls())
+setwd("C:/Users/inilsso1/Dropbox (UNC Charlotte)/Research/OrganizedGenius_TextPaper/scripts/isabelle_sandbox")
+zillowords3 <- read.csv("zillowords_nngen.csv")
+
+words_by_neighborhood <- zillowords3 %>%
+  dplyr::count(clustr5, word, sort = TRUE) %>%
+  ungroup()
+
+cluster.lab <- c('1'= "White-Higher Income", '2'="White Homebuyers-Minority Neighborhoods", '3'= "Increasing Black-Minority Neighborhoods", '4'= "White-Increasingly High Income", '5'="Hispanic Homebuyers-Minority Neighborhoods")
+
+words_by_neighborhood %>%
+  filter(n >= 25) %>% 
+  arrange(n) %>%
+  group_by(clustr5) %>%
+  top_n(25, n) %>%
+  ungroup() %>%
+  mutate(n = factor(word, unique(word))) %>%
+  ggplot(aes(word, n, fill = clustr5)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ clustr5, scales = "free", ncol = 3) +
+  coord_flip() +
+  labs(x = NULL, 
+       y = "Words by Cluster")
+
+
+names <- factor(unique(words_by_neighborhood$clustr5))
+
+plist <- list()
+plist[]
+tiff("testfg.tiff", width = 11, height = 8, units = 'in', res = 600, compression = 'lzw')
+
+for (i in 1:length(names)) {
+  d <- subset(words_by_neighborhood,clustr5 == names[i])
+  d <- subset(d, n>=5)
+  d <- head(d,20)
+  d$word <- factor(d$word, levels=d[order(d$n),]$word)
+  p1 <- ggplot(d, aes(x = word, y = n, fill = clustr5)) + 
+    labs(y = NULL, x = NULL, fill = NULL) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~clustr5, scales = "free", labeller = as_labeller(cluster.lab)) +
+    coord_flip() +
+    guides(fill=FALSE) +
+    theme_bw() + theme( strip.background  = element_blank(),
+                        panel.grid.major = element_line(colour = "grey80"),
+                        panel.border = element_blank(),
+                        axis.ticks = element_line(size = 0),
+                        panel.grid.minor.y = element_blank(),
+                        panel.grid.major.y = element_blank() ) +
+    theme(legend.position="bottom") 
+  
+  
+  plist[[names[i]]] = p1
+}   
+
+do.call("grid.arrange", c(plist, ncol=3))
+
+dev.off()
+#ggsave("test.tiff", units="in", width=5, height=4, dpi=300, compression = 'lzw')
+
+#ggsave("wordplot.tiff")

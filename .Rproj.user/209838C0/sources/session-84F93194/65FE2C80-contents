@@ -1,0 +1,325 @@
+movers <- read.csv('MoversNPAID.csv')
+
+library(dplyr)
+library(stringr)
+##Get rid of "miles in the move distance field
+movers <- movers%>% mutate_at("Move_Distance", str_replace, "miles", "")
+
+##convert to numeric
+movers$move_dist <- as.numeric(movers$Move_Distance)
+movers<-movers%>% filter(movers$move_dist>0)
+
+library(ggplot2)
+library(gridExtra)
+ggplot(data=movers, aes(move_dist))+geom_bar()+scale_x_binned()+xlab("Move Diststance (miles)")
+mean(movers$move_dist)
+sd(movers$move_dist)
+
+movers$outoftown200 <- ifelse(movers$move_dist>=200,1,0)
+movers$outoftown50 <- ifelse(movers$move_dist<=50,1,0)
+movers$outoftown100 <- ifelse(movers$move_dist>=100,1,0)
+ggplot(data=movers)+geom_histogram(mapping=aes(x=outoftown50))
+
+table(movers$outoftown50)
+table(movers$outoftown200)
+table(movers$outoftown100)
+
+#thicker bars for isabelle
+plot50<- ggplot(data = movers, aes(x = outoftown50)) +
+  geom_bar()+ xlab("Moved from Less than 50 Miles") + geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "white")
+
+plot100<- ggplot(data = movers, aes(x = outoftown100)) +
+  geom_bar()+ xlab("Moved from More than 100 Miles") + geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "white")
+
+plot200<- ggplot(data = movers, aes(x = outoftown200)) +
+  geom_bar()+ xlab("Moved from More than 200 Miles") + geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, colour = "white")
+
+grid.arrange(plot50, plot100, plot200)
+
+##Import ratio of out-of-town to all movers by nsa for analysis
+transport <- read.csv("nsa_transport.csv")
+crime <- read.csv("nsa_crime.csv")
+housing <- read.csv("nsa_housing.csv")
+education <- read.csv("nsa_education.csv")
+economy <- read.csv("nsa_economy.csv")
+character <- read.csv("nsa_character.csv")
+
+##do the gis here because esri is slow as molasses 
+library(sf)
+npa_new<- read_sf("NPA_2014_meck.shp")
+npa_nad <- st_transform(npa_new, crs = "EPSG:4269")
+##create sf file from points data frame
+pts<- sf_point(movers, x= "Longitude", y= "Latitude", keep = TRUE)
+st_crs(pts) = "EPSG:4269"
+
+##join the qol tables
+joined <- npa_nad %>% 
+  left_join(transport, by = "NPA") %>% 
+  left_join(crime, by = "NPA")  %>% 
+  left_join(housing, by = "NPA") %>% 
+  left_join(education, by = "NPA") %>% 
+  left_join(economy, by = "NPA")%>% 
+  left_join(character, by = "NPA")
+
+##spatial join the movers to the npa. average the distance. count the movers by groups
+movers_npa <- st_join(movers, movers)
+
+movers<- movers %>% left_join(joined, by = "NPA")
+
+
+
+###group by npa, sum all movers 
+movers_npa <- movers_npa %>% group_by(NPA) %>%
+  summarise(n = n())
+
+##group by npa, average distance
+npa_agg_mean = movers %>% group_by(NPA)%>%
+  summarize(avg_dist = mean(move_dist, na.rm = TRUE ))
+
+##drop geom to make regular table and join back to npa
+npa_agg_mean <- st_drop_geometry(npa_agg_mean)
+avg_npa<- inner_join(joined, npa_agg_mean, by = "NPA")
+plot(avg_npa["avg_dist"])
+
+allmovers_npa <- st_drop_geometry(movers_npa)
+allmovers<- inner_join(joined,movers_npa, by = "NPA")
+allmovers<- inner_join(allmovers,npa_agg_mean, by = "NPA")
+##map dist of all movers
+plot(allmovers["n"])
+
+##join with rest of the variables
+avg_npa_withdata <- inner_join(avg_npa, data, by= "NPA")
+
+data<- st_drop_geometry(data)
+allmovers_npa<- inner_join(allmovers, data, by= "NPA")
+
+
+##pretty graph for isabelle to wake up to
+subsetdata <- select(allmovers, c("ratio","Proficiency_High_School_2019","Public_Nutrition_Assistance_2021","Housing_Size_2018","Transit_Proximity_2020", "Violent_Crime_Rate_2021","Property_Crime_Rate_2021","Housing_Density_2020","New_Residential_Permit_Units_2021","Residential_Renovation_2021","Residential_Demolitions_2020","Home_Sales_Price_2019","Rental_Costs_2019","Proficiency_Elementary_School_2019","Highschool_Graduation_Rate_2019","Job_Density_2017","Commercial_Construction_2020"))
+no_na<-subsetdata%>%filter(ratio>0)
+
+ggpairs(subsetdata, aes = "species", alpha = 0.5)
+library(corrplot)
+corrplot(subsetdata, is.corr = FALSE)
+
+ggstatsplot::ggcorrmat(
+  data = no_geog,
+  type = "parametric", # parametric for Pearson, nonparametric for Spearman's correlation
+  colors = c("darkred", "white", "steelblue") # change default colors
+)
+
+library(lares)
+
+corr_var(no_geog, # name of dataset
+         avg_dist, # name of variable to focus on
+         top = 20 # display top 10 correlations
+)
+
+##more clean
+
+allmovers$Black_Population_2020<- as.numeric(allmovers$Black_Population_2020)
+allmovers$White_Population_2020<- as.numeric(allmovers$White_Population_2020)
+
+##these variables are the most complete
+selectedvars_count <- select(allmovers , c("n","Black_Population_2020","White_Population_2020","Proficiency_High_School_2019", "Public_Nutrition_Assistance_2021", "Long_Commute_2019", "Transit_Proximate_Units_2020", "Violent_Crime_Rate_2021", "Property_Crime_Rate_2021", "Disorder_Call_Rate_2021","Animal_Control_Call_Rate_2021","Fire_Call_Rate_2021","Nuisance_Violations_2020", "Housing_Density_2020", "Housing_Size_2020","Housing_Age_2020", "New_Residential_Permit_Units_2021", "Residential_Renovation_Permit_Units_2021","Rental_Houses_Units_2020", "Residential_Demolition_Permit_Units_2020","Home_Sales_Price_2019", "Rental_Costs_2019", "Proficiency_Elementary_School_2019", "Proficiency_Middle_School_2019","Proficiency_High_School_2019", "Highschool_Graduation_Rate_2019", "Household_Income_2019", "Public_Nutrition_Assistance_2021", "Employment_Rate_2019", "Job_Density_2017", "Commercial_Construction_Permitted_Units_2021","Financial_Services_Proximate_Units_2019","Population_Density_2020","Age_of_Residents_2019","Vacant_Land_Area_2021" ))
+no_geog <- st_drop_geometry(selectedvars_count)
+
+###Now need to create some ratio variables as robustness checks
+## number of >=200 mile moves vs. number <= 50 miles
+npa_move_groups = movers %>% group_by(NPA)%>%
+  summarize(sum50 = sum(outoftown50, na.rm = TRUE ),sum100 = sum(outoftown100, na.rm = TRUE), sum200 = sum(outoftown200, na.rm = TRUE ))
+
+npa_move_groups<- npa_move_groups %>% filter(sum50>0)
+npa_move_groups$ratio200_50 <- npa_move_groups$sum200/npa_move_groups$sum50
+npa_move_groups$ratio100_50 <- npa_move_groups$sum100/npa_move_groups$sum50
+map_long_dist1<- plot(npa_move_groups["ratio200_50"])
+map_long_dist2<- plot(npa_move_groups["ratio100_50"])
+grid.arrange(map_long_dist1, map_long_dist2)
+
+##join back to npa for mappin'
+nap_move_groups_nogeom <- st_drop_geometry(npa_move_groups)
+ratios<- inner_join(npa_nad, npa_move_groups)
+plot(ratios["ratio200_50"])
+plot(ratios["ratio100_50"])
+
+##join with the rest of the variables
+joined <- ratios %>% 
+  left_join(transport, by = "NPA") %>% 
+  left_join(crime, by = "NPA")  %>% 
+  left_join(housing, by = "NPA") %>% 
+  left_join(education, by = "NPA") %>% 
+  left_join(economy, by = "NPA")%>% 
+  left_join(character, by = "NPA")
+
+
+
+joined$Black_Population_2010<- as.numeric(joined$Black_Population_2010)
+joined$White_Population_2010<- as.numeric(joined$White_Population_2010)
+
+forisabelle <- select(joined, c("NPA","ratio200_50","ratio100_50","Bicycle_Friendliness_2018","Black_Population_2020","White_Population_2020", "Long_Commute_2019","Street_Connectivity_2021","Transit_Proximity_2020", "Housing_Density_2020", "Single_Family_Housing_2020","New_Residential_2021", "Residential_Renovation_2021", "Residential_Demolitions_2020","Home_Ownership_2019", "Residential_Occupancy_2019", "Bachelors_Degree_2019","Proficiency_Elementary_School_2015","Neighborhood_School_Attendance_2016", "Public_Nutrition_Assistance_2021", "Job_Density_2017", "Commercial_Construction_2017", "Population_Density_2020", "Hispanic_Latino_2020" ) )
+forisabelle2<- left_join(avg_npa, forisabelle)
+forisabelle3<- left_join(allmovers, forisabelle2, by = "NPA")
+avg_npa<-st_drop_geometry(avg_npa)
+allmovers<-st_drop_geometry(allmovers)
+
+forisabelle3 <- select(forisabelle3, -c("ACRES.x", "ACRES.y"))
+
+selectedvars2 <- select(joined , c("ratio200_50","Bicycle_Friendliness_2018","Black_Population_2020","White_Population_2020", "Long_Commute_2019","Street_Connectivity_2021","Transit_Proximity_2020", "Housing_Density_2020", "Single_Family_Housing_2020","New_Residential_2021", "Residential_Renovation_2021", "Residential_Demolitions_2020","Home_Ownership_2019", "Residential_Occupancy_2019", "Bachelors_Degree_2019","Proficiency_Elementary_School_2015","Neighborhood_School_Attendance_2016", "Public_Nutrition_Assistance_2021", "Job_Density_2017", "Commercial_Construction_2017", "Population_Density_2020", "Hispanic_Latino_2020" ))
+selectedvars3 <- select(joined , c("ratio100_50","Bicycle_Friendliness_2018","Black_Population_2020","White_Population_2020", "Long_Commute_2019","Street_Connectivity_2021","Transit_Proximity_2020", "Housing_Density_2020", "Single_Family_Housing_2020","New_Residential_2021", "Residential_Renovation_2021", "Residential_Demolitions_2020","Home_Ownership_2019", "Residential_Occupancy_2019", "Bachelors_Degree_2019","Proficiency_Elementary_School_2015","Neighborhood_School_Attendance_2016", "Public_Nutrition_Assistance_2021", "Job_Density_2017", "Commercial_Construction_2017", "Population_Density_2020", "Hispanic_Latino_2020" ))
+selectedvars4 <- select(allmovers , c("n","Bicycle_Friendliness_2018","Black_Population_2020", "White_Population_2020","Long_Commute_2019","Street_Connectivity_2021","Transit_Proximity_2020", "Housing_Density_2020", "Single_Family_Housing_2020","New_Residential_2021", "Residential_Renovation_2021", "Residential_Demolitions_2020","Home_Ownership_2019", "Residential_Occupancy_2019", "Bachelors_Degree_2019","Proficiency_Elementary_School_2015","Neighborhood_School_Attendance_2016", "Public_Nutrition_Assistance_2021", "Job_Density_2017", "Commercial_Construction_2017", "Population_Density_2020", "Hispanic_Latino_2020" ))
+
+qolvars<- select(selectedvars2, -c("ratio200_50"))
+qolvars$Black_Population_2020<- as.numeric(qolvars$Black_Population_2020)
+qolvars$Hispanic_Latino_2020<- as.numeric(qolvars$Hispanic_Latino_2020)
+qolvars$White_Population_2020<- as.numeric(qolvars$White_Population_2020)
+qolvars$Home_Ownership_2019<- as.numeric(qolvars$Home_Ownership_2019)
+qolvars$Bachelors_Degree_2019<- as.numeric(qolvars$Bachelors_Degree_2019)
+plot(qolvars[2])
+my.palette <- brewer.pal(n = 4, name = "YlOrRd")
+
+no_geog <- st_drop_geometry(selectedvars2)
+no_geog2 <- st_drop_geometry(selectedvars3)
+no_geog3 <- st_drop_geometry(selectedvars4)
+
+no_geog$Black_Population_2020<- as.numeric(no_geog$Black_Population_2020)
+no_geog$Hispanic_Latino_2020<- as.numeric(no_geog$Hispanic_Latino_2020)
+no_geog$White_Population_2020<- as.numeric(no_geog$White_Population_2020)
+no_geog$Home_Ownership_2019<- as.numeric(no_geog$Home_Ownership_2019)
+no_geog$Bachelors_Degree_2019<- as.numeric(no_geog$Bachelors_Degree_2019)
+
+
+corr_var(no_geog, # name of dataset
+         ratio200_50, # name of variable to focus on
+         top = 21 # display top 10 correlations
+)
+
+##check without that one guy
+no_outlier <- no_geog %>% filter(ratio200_50<1)
+
+corr_var(no_outlier, # name of dataset
+         ratio200_50, # name of variable to focus on
+         top = 10 # display top 10 correlations
+)
+##make better maps
+library(tmap)
+
+map1 <- tm_shape(allmovers)+tm_fill(col = "n", title = "Count of Movers", style = "jenks", n=6, palette = "Greens") +tm_borders()+tm_layout(frame = FALSE)
+
+map1 
+
+map2 <- tm_shape(avg_npa)+tm_fill(col = "avg_dist", title = "Average Distance Moved", style = "jenks", n=6, palette = "Greens") +tm_borders()+tm_layout(frame = FALSE)
+
+map2
+
+
+map3 <- tm_shape(ratios)+tm_fill(col = "ratio100_50", title = ">100 Miles:<50 Miles ", style = "jenks", n=6, palette = "Greens") +tm_borders()+tm_layout(frame = FALSE)
+
+map3
+
+map4 <- tm_shape(ratios)+tm_fill(col = "ratio200_50", title = ">200 Miles:<50 Miles ", style = "jenks", n=6, palette = "Greens") +tm_borders()+tm_layout(frame = FALSE)
+
+map4
+
+
+
+tmap_arrange(map1, map2, map3, map4)
+
+
+qol1 <- tm_shape(qolvars)+tm_fill(col = "Black_Population_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol1
+
+qol2 <- tm_shape(qolvars)+tm_fill(col = "White_Population_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol2
+qol3 <- tm_shape(qolvars)+tm_fill(col = "Bicycle_Friendliness_2018", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol3
+
+qol4 <- tm_shape(qolvars)+tm_fill(col = "Street_Connectivity_2021", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol4
+
+qol5 <- tm_shape(qolvars)+tm_fill(col = "Long_Commute_2019", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol5
+
+qol6 <- tm_shape(qolvars)+tm_fill(col = "Transit_Proximity_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol6
+
+qol7 <- tm_shape(qolvars)+tm_fill(col = "Housing_Density_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol7
+
+qol8 <- tm_shape(qolvars)+tm_fill(col = "Single_Family_Housing_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol8
+
+qol9 <- tm_shape(qolvars)+tm_fill(col = "New_Residential_2021", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol9
+
+qol10 <- tm_shape(qolvars)+tm_fill(col = "Residential_Renovation_2021", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol10
+
+qol11 <- tm_shape(qolvars)+tm_fill(col = "Residential_Demolitions_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol11
+
+qol12 <- tm_shape(qolvars)+tm_fill(col = "Home_Ownership_2019", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol12
+
+qol13 <- tm_shape(qolvars)+tm_fill(col = "Residential_Occupancy_2019", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol13
+
+qol14 <- tm_shape(qolvars)+tm_fill(col = "Bachelors_Degree_2019", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol14
+
+qol15 <- tm_shape(qolvars)+tm_fill(col = "Proficiency_Elementary_School_2015", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol15
+
+qol16 <- tm_shape(qolvars)+tm_fill(col = "Neighborhood_School_Attendance_2016", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol16
+
+qol17 <- tm_shape(qolvars)+tm_fill(col = "Job_Density_2017", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol17
+
+qol18 <- tm_shape(qolvars)+tm_fill(col = "Commercial_Construction_2017", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol18
+
+qol19 <- tm_shape(qolvars)+tm_fill(col = "Population_Density_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol19
+
+qol20 <- tm_shape(qolvars)+tm_fill(col = "Hispanic_Latino_2020", style = "jenks", n=6)+tm_borders()+tm_layout(frame = FALSE)
+qol20
+
+tmap_arrange(qol1, qol2, qol3, qol4)
+
+
+##stepwise regression
+
+
+selectedvars2 <- selectedvars2 %>% filter(ratio200_50>0)
+selectedvars2 <- selectedvars2 %>% filter(ratio200_50<2)
+selectedvars2 <- na.omit(selectedvars2)
+
+selectedvars3 <- na.omit(selectedvars3)
+selectedvars3 <- selectedvars3 %>% filter(ratio100_50>0)
+selectedvars3<- st_drop_geometry(selectedvars3)
+
+selectedvars4 <- na.omit(selectedvars4)
+selectedvars4<- st_drop_geometry(selectedvars4)
+
+
+model1 <-  lm(selectedvars4$n~ . , data = selectedvars4)
+selectedmod1 <- step(model1)
+summary(selectedmod1)
+##so much correlation! 
+all_vifs <- car::vif(selectedmod1)
+print(all_vifs)
+
+signif_all <- names(all_vifs)
+
+# Remove vars with VIF> 4 and re-build model until none of VIFs don't exceed 4.
+while(any(all_vifs > 4)){
+  var_with_max_vif <- names(which(all_vifs == max(all_vifs)))  # get the var with max vif
+  signif_all <- signif_all[!(signif_all) %in% var_with_max_vif]  # remove
+  myForm <- as.formula(paste("n ~ ", paste (signif_all, collapse=" + "), sep=""))  # new formula
+  selectedMod <- lm(myForm, data=selectedvars4)  # re-build model with new formula
+  all_vifs <- car::vif(selectedMod)
+}
+summary(selectedMod)
+
+
+

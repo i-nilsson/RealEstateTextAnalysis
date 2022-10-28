@@ -1,0 +1,225 @@
+library('tm')
+library('gridExtra')
+### Prediction using predict with binomial spec. 
+library(rsample)
+library(tidytext)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(glmnet)
+library(broom)
+library(ggplot2)
+library(yardstick)
+
+dataclean<- read.csv('dataclean.csv')
+uniquewords <- read.csv('words - uniquewords.csv')
+
+##remove house and geographic words
+housewords<- subset(uniquewords, meaning == 0)
+geowords<- subset(uniquewords, meaning == 3)
+houselist<- as.list(housewords$Word)
+geolist <- as.list(geowords$Word)
+straatwords <- words %>% filter(grepl("straat", word))
+straatlist<- as.list(straatwords$word)
+laanwords <- words %>% filter(grepl("laan", word))
+laanlist<- as.list(laanwords$word)
+pleinwords <- words %>% filter(grepl("plein", word))
+pleinlist<- as.list(pleinwords$word)
+buurtwords <- words %>% filter(grepl("buurt", word))
+buurtwords<- buurtwords %>% filter(!word == 'buurtwinkels')
+buurtlist<- as.list(buurtwords$word)
+
+
+
+remove_words<-c("sandhaghe","boezemkade","cattenburch","hillesluis","docklandsweg","suchtelen","hendrikbuurt","wittenburgervaart","gaasperdam","denieuweduin","duttendel","neudeflat","cattenburgh","douche","tevens","per",'appartementen','badkamer',"woning", 'woningen',"verdieping", "appartement", "keuken", "woonkamer",'slaapkamer','slaapkamers','kamer',"etage","uitzicht","double","locatie","meter","complex","middels","ook","voorzieningen","cv","er","direct","bevindt","wastafel","ligt","deuren","bedrooms","nvm","amsterdam","rotterdam","den","haag","front","located","toegang","grote","goed","dit","separate","entrance","eigen","bijzonderheden","bedroom","kunt","informatie","voorzijde","achterzijde","grond", "woonoppervlakte","volledig","maand","met","aan","dubbele","eerste","zoals","beschikt","tweede","wonen","begane","volledig","vanuit","ruimte","binnen","kitchen","de", "voorzien", "het", "alle", "ca", "twee", "floor", "apartment", "hal", "entree", 
+                "living", "indeling", "berging", "toilet", "zeer", "bathroom", "een", "wij", "op", "house", "deze", "waar", "property", "waaronder", "oven", "drie","één","maanden", "home", "tour", "utrecht","den", "haag", "home" )
+
+##create tokens and remove the words from the 3 lists
+words<- dataclean %>% unnest_tokens(word, text) %>% dplyr::anti_join(stop_words) %>% dplyr::filter(!word %in% remove_words)
+words <- words%>% dplyr::filter(!word %in% houselist)
+words <- words%>% dplyr::filter(!word %in% geolist)
+words <- words%>% dplyr::filter(!word %in% straatlist)
+words <- words%>% dplyr::filter(!word %in% laanlist)
+words <- words%>% dplyr::filter(!word %in% pleinlist)
+words <- words%>% dplyr::filter(!word %in% buurtlist)
+
+words_by_neighborhood <- words%>%
+  dplyr::count(cluster, word, sort = TRUE) %>%
+  ungroup()
+
+
+cluster_tf_idf <- words_by_neighborhood %>%
+  bind_tf_idf(word, cluster, n)
+
+cluster_tf_idf %>%
+  select(-n) %>%
+  arrange(desc(tf_idf))
+
+#library(forcats)
+
+cluster_tf_idf %>%
+  group_by(cluster) %>%
+  slice_max(tf_idf, n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = cluster)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~cluster, ncol = 2, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+
+
+##word associations
+##First do on dataA -- words from cluster 1. Each listing will be like a 'section'
+library(widyr)
+dataA<- subset(dataclean, cluster ==4)
+dataA$ID <- seq.int(nrow(dataA))
+wordsA<- dataA %>% unnest_tokens(word, text) %>% dplyr::anti_join(stop_words) %>% dplyr::filter(!word %in% remove_words)
+wordsA <- wordsA%>% dplyr::filter(!word %in% houselist)
+wordsA <- wordsA%>% dplyr::filter(!word %in% geolist)
+wordsA <- wordsA%>% dplyr::filter(!word %in% straatlist)
+wordsA <- wordsA%>% dplyr::filter(!word %in% laanlist)
+
+#dataA_words<- dataA %>% unnest_tokens(word, text) %>% filter(!word %in% remove_words)
+
+word_cors <- wordsA %>%
+  group_by(word) %>%
+  filter(n() >= 20) %>%
+  pairwise_cor(word, ID, sort = TRUE)
+
+word_cors %>%
+  filter(item1 == "loopafstand")
+
+word_cors %>%
+  filter(item1 %in% c("loopafstand")) %>%
+  group_by(item1) %>%
+  slice_max(correlation, n = 10) %>%
+  ungroup() %>%
+  mutate(item2 = reorder(item2, correlation)) %>%
+  ggplot(aes(item2, correlation)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ item1, scales = "free") +
+  coord_flip()
+
+
+###graph not sorted
+words_by_neighborhood %>%
+  filter(n >= 25) %>% 
+  arrange(n) %>%
+  group_by(cluster) %>%
+  top_n(25, n) %>%
+  ungroup() %>%
+  mutate(n = factor(word, unique(word))) %>%
+  ggplot(aes(word, n, fill = cluster)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ cluster, scales = "free", ncol = 3) +
+  coord_flip() +
+  labs(x = NULL, 
+       y = "Words by Cluster")
+
+##to make the sorted graph
+names <- factor(unique(words_by_neighborhood$cluster))
+
+cluster.lab <- c('1'= "Wealthiest", '2'="Medium-High", '3'= "Medium", '4'= "Poor")
+
+
+plist <- list()
+plist[]
+
+for (i in 1:length(names)) {
+  d <- subset(words_by_neighborhood,cluster== names[i])
+  d <- subset(d, n>=5)
+  d <- head(d,25)
+  d$word <- factor(d$word, levels=d[order(d$n),]$word)
+  p1 <- ggplot(d, aes(x = word, y = n, fill = cluster)) + 
+    labs(y = NULL, x = NULL, fill = NULL) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~cluster, scales = "free", labeller = as_labeller(cluster.lab)) +
+    coord_flip() +
+    guides(fill=FALSE) +
+    theme_bw() + theme( strip.background  = element_blank(),
+                        panel.grid.major = element_line(colour = "grey80"),
+                        panel.border = element_blank(),
+                        axis.ticks = element_line(size = 0),
+                        panel.grid.minor.y = element_blank(),
+                        panel.grid.major.y = element_blank() ) +
+    theme(legend.position="bottom") 
+  
+  
+  plist[[names[i]]] = p1
+}   
+
+do.call("grid.arrange", c(plist, ncol=2))
+
+##for logistic regression
+#Make binomial - HERE EXAMPLE FOR CLASS 1
+
+library(rsample)
+library(tidytext)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(glmnet)
+library(broom)
+library(ggplot2)
+library(yardstick)
+
+dataclean$clustr5[dataclean$cluster!=2] <- 0     #<---- CHANGE CLASS HERE
+dataclean$clustr5[dataclean$cluster==2] <- 1     #<---- CHANGE CLASS HERE
+words$clustr5[words$cluster!=2] <- 0     #<---- CHANGE CLASS HERE
+words$clustr5[words$cluster==2] <- 1     #<---- CHANGE CLASS HERE
+
+#Remove words that only occurs less than 5 times
+words$nn <- ave(words$word,words$word, FUN=length)
+words$nn <- as.numeric(words$nn)
+data<- words[ -which(words$nn <5), ]
+
+##split data
+data$ID <- seq.int(nrow(data))
+data_split<- data%>%select(ID)
+data_split<- initial_split(data_split)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+#TRAINING DATA: transform data from tidy data structure to a sparse matrix
+sparse_words <- data %>%
+  count(ID, word) %>%
+  inner_join(train_data) %>%
+  cast_sparse(ID, word, n)
+
+class(sparse_words)
+dim(sparse_words)
+
+word_rownames <- as.integer(rownames(sparse_words))
+
+data_joined <- data_frame(ID = word_rownames) %>%
+  left_join(data %>%
+              select(ID, clustr5))
+
+#Run model on training data
+
+is_cluster <- data_joined$clustr5 == 1             
+model <- cv.glmnet(sparse_words, is_cluster,
+                   family = "binomial", intercept = TRUE
+                   #parallel = TRUE, keep = TRUE
+)
+#Pull out coefficients
+
+coefs <- model$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model$lambda.min)
+
+fig <- coefs %>%
+  group_by(estimate > 0) %>%
+  top_n(15, abs(estimate)) %>%
+  ungroup() %>%
+  ggplot(aes(fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  coord_flip() + theme(axis.text=element_text(size=11)) +
+  labs(
+    x = NULL,
+    title = "Coefficients that increase/decrease probability of Class 1", #<---- CHANGE CLASS HERE
+    subtitle = "Wealthiest Neighborhoods" #<---- CHANGE CLASS HERE
+  ) 
+
+
+
+

@@ -1,0 +1,137 @@
+#R1
+library(rsample)
+library(tidytext)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(glmnet)
+library(broom)
+library(ggplot2)
+library(yardstick)
+
+rm(list = ls())
+setwd("C:/Users/inilsso1/Dropbox (UNC Charlotte)/Research/OrganizedGenius_TextPaper/scripts/isabelle_sandbox")
+data <- read.csv("data.csv")
+zillowords4 <- read.csv("zillowords_nngen.csv")
+
+#Make binomial - HERE EXAMPLE FOR CLASS 5
+
+data$clustr5[data$clustr5!=5] <- 0    
+data$clustr5[data$clustr5==5] <- 1    
+zillowords4$clustr5[zillowords4$clustr5!=5] <- 0    
+zillowords4$clustr5[zillowords4$clustr5==5] <- 1
+
+#Remove words that only occurs less than 5 times
+zillowords4$nn <- ave(zillowords4$word,zillowords4$word, FUN=length)
+zillowords4$nn <- as.numeric(zillowords4$nn)
+zillowords4<- zillowords4[ -which( zillowords4$nn <5), ]
+
+data_split<- data%>%select(ID)
+data_split<- initial_split(data_split)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+#TRAINING DATA: transform data from tidy data structure to a sparse matrix
+sparse_words <- zillowords4 %>%
+  count(ID, word) %>%
+  inner_join(train_data) %>%
+  cast_sparse(ID, word, n)
+
+class(sparse_words)
+dim(sparse_words)
+
+word_rownames <- as.integer(rownames(sparse_words))
+
+data_joined <- data_frame(ID = word_rownames) %>%
+  left_join(data %>%
+              select(ID, clustr5))
+
+#Run model on training data (slow)
+
+is_cluster <- data_joined$clustr5 == 1             
+model <- cv.glmnet(sparse_words, is_cluster,
+                   family = "binomial", intercept = TRUE
+                   #parallel = TRUE, keep = TRUE
+)
+
+#Pull out coefficients
+
+coefs <- model$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model$lambda.min)
+
+#plot
+fig <- coefs %>%
+  group_by(estimate > 0) %>%
+  top_n(15, abs(estimate)) %>%
+  ungroup() %>%
+  ggplot(aes(fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  coord_flip() + theme(axis.text=element_text(size=11)) +
+  labs(
+    x = NULL,
+    title = "Hispanic Homebuyers-Minority Neighborhoods" #<---- CHANGE CLASS HERE
+  ) 
+fig
+ggsave(fig, file="R1_plot_class5.tiff", width = 150, height = 125, units = "mm", dpi = 600)     #<---- CHANGE CLASS HERE
+
+### Prediction
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+classifications <- zillowords4 %>%
+  inner_join(test_data) %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(ID) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+comment_classes <- classifications %>%
+  left_join(data %>%
+              select(clustr5, ID), by = "ID") %>%
+  mutate(clustr5 = as.factor(clustr5))  
+
+## Confusion matrix: https://developers.google.com/machine-learning/crash-course/classification/true-false-positive-negative
+
+# at 0.8 threshold
+comment_classes %>%
+  mutate(
+    prediction = case_when(
+      probability > 0.8 ~ "1",
+      TRUE ~ "0"
+    ),
+    prediction = as.factor(prediction)
+  ) %>%
+  conf_mat(clustr5, prediction)
+
+#accuracy = TN + TP / tot # of predictions
+#precision = TP / TP + FP
+#recall = TP / TP + FN
+
+## Make 5 part figure
+library(png)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(cowplot)
+
+rm(list = ls())
+setwd("C:/Users/inilsso1/Dropbox (UNC Charlotte)/Research/OrganizedGenius_TextPaper/scripts/isabelle_sandbox")
+
+cl1<- 'R1_plot_class1.png'
+img1 <- png::readPNG(cl1)
+cl2<- 'R1_plot_class2.png'
+img2 <- png::readPNG(cl2)
+cl3<- 'R1_plot_class3.png'
+img3 <- png::readPNG(cl3)
+cl4<- 'R1_plot_class4.png'
+img4 <- png::readPNG(cl4)
+cl5<- 'R1_plot_class5.png'
+img5 <- png::readPNG(cl5)
+
+pdf("allclassescomb.pdf", width=6, height=7)
+grid.arrange(rasterGrob(img1),rasterGrob(img2),rasterGrob(img3),rasterGrob(img4),rasterGrob(img5),ncol=2)
+dev.off()
+# in adobe --> export PDF --> image --> jpeg (click settings next to it and choose high quality and 600 dpi)

@@ -1,0 +1,97 @@
+##using zillowords2 from CLeaningthedata.R
+
+install.packages("rsample")
+library(rsample)
+data_split<- data%>%select(ID)
+data_split<- initial_split(data_split)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+#zillowords2<- as.integer(zillowords2$X1)
+
+##transform training data from tidy data structure to a sparse matrix
+sparse_words <- zillowords4 %>%
+  count(ID, word) %>%
+  inner_join(train_data) %>%
+  cast_sparse(ID, word, n)
+
+class(sparse_words)
+dim(sparse_words)
+
+#data$USER_ID<-as.integer(data$USER_ID)
+word_rownames <- as.integer(rownames(sparse_words))
+
+data_joined <- data_frame(ID = word_rownames) %>%
+  left_join(data %>%
+              select(ID, clustr5))
+
+#data_joined2<- na.omit(data_joined)
+
+library(glmnet)
+#install.packages(doMC)
+#library(doMC)
+#registerDoMC(cores = 8)
+
+#is_jane <- data_joined$title == "Pride and Prejudice"
+model <- cv.glmnet(sparse_words, data_joined$clustr5,
+                   family = "multinomial",
+                   #parallel = TRUE, keep = TRUE
+)
+
+library(broom)
+
+coef2<- model$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model$lambda)
+
+coefs <- model$glmnet.fit %>%
+  tidy() %>%
+  filter(lambda == model$lambda.1se)
+
+tiff("Plot_class5.tiff", width = 11, height = 8, units = 'in', res = 600, compression = 'lzw')
+
+#par(mfrow=c(3,2))
+class4<- subset(coefs, class==4)
+plot4<-class4 %>%
+  group_by(estimate > 0) %>%
+  top_n(15, abs(estimate)) %>%
+  ungroup() %>%
+  ggplot(aes(fct_reorder(term, estimate), estimate, fill = estimate > 0)) +
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    title = "Coefficients that increase/decrease probability of Class 4",
+    subtitle = "White Higher Income"
+  )
+dev.off()
+
+plist3<-list(plot1, plot2, plot3, plot4, plot5)
+tiff("Plot_all.tiff", width = 20, height = 10, units = 'in', res = 600, compression = 'lzw')
+do.call("grid.arrange", c(plist3, ncol=3))
+dev.off()
+  #(plot1; plot2; plot3; plot4; plot5)
+
+##Need to predict now with the test data
+
+
+zillowords4 %>%
+  inner_join(test_data) %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(ID) %>%
+
+intercept <- coefs %>%
+  filter(term == "(Intercept)") %>%
+  pull(estimate)
+
+test<- predict(model, train_data$)
+
+
+classifications <- zillowords4 %>%
+  inner_join(test_data) %>%
+  inner_join(coefs, by = c("word" = "term")) %>%
+  group_by(ID) %>%
+  summarize(score = sum(estimate)) %>%
+  mutate(probability = plogis(intercept + score))
+
+classifications
